@@ -29,6 +29,7 @@ public class UserDao {
 
     //FindAll
     public Map<Object,Object> findAll(){
+
         return redisTemplate.opsForHash().entries(KEY);
     }
 
