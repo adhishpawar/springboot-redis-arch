@@ -259,4 +259,117 @@ DELETE  /users/{id}
 
 ---
 
+# Redis Advanced Functionalities (TTL, Locking, Cache-Aside, Pub/Sub)
+
+## 1. TTL (Expiry-based Cache)
+
+Used to store heavy objects temporarily.
+
+### Example:
+
+``` java
+public void cacheHeavyData(String key, Object data, long ttlInSeconds) {
+    redisTemplate.opsForValue().set(key, data, Duration.ofSeconds(ttlInSeconds));
+}
+```
+
+### Usage:
+
+``` java
+cacheHeavyData("LARGE_FILE_DATA", obj, 300); // 5 min
+```
+
+### Controller Example:
+
+``` java
+@GetMapping("/cache-heavy")
+public Object getHeavyFileData() {
+    String key = "LARGE_FILE_DATA";
+
+    Object cached = redisTemplate.opsForValue().get(key);
+
+    if (cached != null) return cached;
+
+    Object heavyResponse = heavyFileService.processHugeFile();
+
+    cacheHeavyData(key, heavyResponse, 300);
+
+    return heavyResponse;
+}
+```
+
+------------------------------------------------------------------------
+
+## 2. Distributed Locking
+
+``` java
+Boolean locked = redisTemplate.opsForValue().setIfAbsent("FILE_LOCK", "LOCKED", 20, TimeUnit.SECONDS);
+
+if Boolean.FALSE.equals(locked) {
+    return "Already processing!";
+}
+
+// After processing
+redisTemplate.delete("FILE_LOCK");
+```
+
+------------------------------------------------------------------------
+
+## 3. Caching List / Map / Set
+
+### Store List
+
+``` java
+redisTemplate.opsForList().leftPush("RECENT_LOGS", logText);
+```
+
+### Get List
+
+``` java
+redisTemplate.opsForList().range("RECENT_LOGS", 0, 10);
+```
+
+------------------------------------------------------------------------
+
+## 4. Pub/Sub Messaging
+
+### Publisher
+
+``` java
+redisTemplate.convertAndSend("USER_CHANNEL", user);
+```
+
+### Subscriber
+
+Use `MessageListenerAdapter` + `RedisMessageListenerContainer`.
+
+------------------------------------------------------------------------
+
+## 5. Cache-Aside Pattern (Best Practice)
+
+``` java
+public User getUserWithCache(String userId) {
+    String key = "USER_CACHE:" + userId;
+
+    User cached = (User) redisTemplate.opsForValue().get(key);
+    if (cached != null) return cached;
+
+    User user = fetchFromDatabase(userId);
+
+    redisTemplate.opsForValue().set(key, user, Duration.ofMinutes(5));
+
+    return user;
+}
+```
+
+------------------------------------------------------------------------
+
+## Summary
+
+✔ True Redis speed\
+✔ Automatic expiry\
+✔ Prevents duplicate processing\
+✔ Real-time updates\
+✔ Industry-standard caching
+
 
