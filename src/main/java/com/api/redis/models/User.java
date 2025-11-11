@@ -1,69 +1,43 @@
 package com.api.redis.models;
 
+import jakarta.persistence.*;
 import lombok.*;
 
 import java.io.Serializable;
+import java.time.OffsetDateTime;
 
 
-public class User implements Serializable {
+@Entity
+@Table(name = "users")
+public class User {
 
-    private String userId;
+    @Id
+    @Column(name = "id", length = 64)
+    private String id;
 
     private String name;
-
-    private String phone;
-
     private String email;
+    private String role;
 
-    @Override
-    public String toString() {
-        return "User{" +
-                "userId='" + userId + '\'' +
-                ", name='" + name + '\'' +
-                ", phone='" + phone + '\'' +
-                ", email='" + email + '\'' +
-                '}';
-    }
+    @Column(name = "updated_at")
+    private OffsetDateTime updatedAt;
 
-    public User() {
-    }
+    public User() {}
 
-    public User(String userId, String name, String phone, String email) {
-        this.userId = userId;
-        this.name = name;
-        this.phone = phone;
-        this.email = email;
-    }
+    // getters / setters
+    // ensure you update updatedAt on update operations in service or DB trigger
+    public String getId() { return id; }
+    public void setId(String id) { this.id = id; }
 
-    public String getUserId() {
-        return userId;
-    }
+    public String getName() { return name; }
+    public void setName(String name) { this.name = name; }
 
-    public void setUserId(String userId) {
-        this.userId = userId;
-    }
+    public String getEmail() { return email; }
+    public void setEmail(String email) { this.email = email; }
 
-    public String getName() {
-        return name;
-    }
+    public String getRole() { return role; }
+    public void setRole(String role) { this.role = role; }
 
-    public void setName(String name) {
-        this.name = name;
-    }
-
-    public String getPhone() {
-        return phone;
-    }
-
-    public void setPhone(String phone) {
-        this.phone = phone;
-    }
-
-    public String getEmail() {
-        return email;
-    }
-
-    public void setEmail(String email) {
-        this.email = email;
-    }
+    public OffsetDateTime getUpdatedAt() { return updatedAt; }
+    public void setUpdatedAt(OffsetDateTime updatedAt) { this.updatedAt = updatedAt; }
 }

@@ -1,69 +1,51 @@
 
-# Spring Boot Redis CRUD – README
+# 🚀 Spring Boot + PostgreSQL + Redis Cache-Aside System (Advanced CRUD + TTL + LRU + Invalidation)
 
-## 🧩 Overview
-This project is a **basic Redis CRUD implementation using Spring Boot**, inspired by the tutorial:  
-https://youtu.be/lXK8RS40v9c
+## 🧩 **Overview**
 
-It demonstrates:
-- Redis installation & setup
-- Spring Boot + Redis integration
-- Full CRUD using Redis Hash
-- MVC + Flowcharts + Architecture diagrams
+This project extends the basic Redis CRUD architecture into a **FinTech-grade cache-aside system** using:
+
+- ✅ PostgreSQL (Source of Truth)
+- ✅ Redis (High‑speed Cache)
+- ✅ Automatic Cache Invalidation
+- ✅ TTL-based caching
+- ✅ Redis LRU Eviction
+- ✅ Background Scheduler (1‑minute DB change detector)
+- ✅ CRUD operations with logs
+- ✅ Cache logs stored in Redis LIST
+
+This system ensures **data accuracy**, **performance**, and **cache freshness**.
 
 ---
 
-# 📦 Technologies
+# 🏗 **System Architecture**
+
+```
+Client → Controller → Service → DAO → PostgreSQL
+                               ↘→ Redis Cache (TTL, LRU)
+```
+
+### ✔ *Cache-aside pattern* implemented:
+- Read: check cache → if MISS → load from DB → save to cache
+- Write: update DB → delete cache key
+- Scheduler: detect DB changes every 1 minute → clear stale cache
+- Redis eviction: allkeys-lru (server configured)
+
+---
+
+# 📦 **Technologies**
 - Spring Boot 3.x
-- Spring Data Redis
-- Redis (In-memory DB)
-- Lettuce Client
 - Java 17
+- Spring Data Redis + Lettuce
+- PostgreSQL
+- Redis Server (with LRU eviction)
 - Maven
+- Scheduler (Spring @Scheduled)
 
 ---
 
-# 🔧 Redis Installation
+# 🧱 **Project Structure**
 
-## Windows
-```
-Option 1 → Redis MSI Installer  
-https://github.com/microsoftarchive/redis/releases
-After install → Redis runs as Windows service.
-
-Option 2 → WSL
-wsl --install
-sudo apt update
-sudo apt install redis-server
-sudo service redis-server start
-```
-
-## MacOS
-```
-brew install redis
-brew services start redis
-```
-
-## Linux
-```
-sudo apt update
-sudo apt install redis-server
-sudo systemctl start redis-server
-sudo systemctl enable redis-server
-```
-
-### Verify Redis
-```
-redis-cli ping   → PONG
-redis-cli --version
-redis-cli
-SET test "Hello"
-GET test
-```
-
----
-
-# 📁 Project Structure
 ```
 src/main/java/com/api/redis/
 │
@@ -73,8 +55,15 @@ src/main/java/com/api/redis/
 ├── controller/
 │   └── UserController.java
 │
+├── service/
+│   └── UserService.java
+│
 ├── dao/
-│   └── UserDao.java
+│   ├── UserDao.java (PostgreSQL)
+│   ├── RedisCacheDao.java (Redis)
+│
+├── scheduler/
+│   └── CacheInvalidationScheduler.java
 │
 └── models/
     └── User.java
@@ -82,294 +71,195 @@ src/main/java/com/api/redis/
 
 ---
 
-# ⚙️ RedisConfig – Detailed Explanation
+# ⚙️ **Redis Configuration (LRU Enabled)**
 
-## RedisConfig.java
-```
-@Bean
-public RedisConnectionFactory connectionFactory() {
-    return new LettuceConnectionFactory();
-}
-
-@Bean
-public RedisTemplate<String,Object> redisTemplate() {
-    RedisTemplate<String,Object> redisTemplate = new RedisTemplate<>();
-    redisTemplate.setConnectionFactory(connectionFactory());
-    redisTemplate.setKeySerializer(new StringRedisSerializer());
-    redisTemplate.setValueSerializer(new GenericJackson2JsonRedisSerializer());
-    return redisTemplate;
+```java
+@PostConstruct
+public void attemptSetLRUPolicy() {
+    try {
+        RedisConnection conn = redisConnectionFactory().getConnection();
+        conn.setConfig("maxmemory-policy", "allkeys-lru");
+        System.out.println("✅ Redis eviction policy set to: allkeys-lru");
+    } catch (Exception ex) {
+        System.out.println("⚠ Could not apply Redis LRU eviction policy.");
+    }
 }
 ```
 
 ---
 
-# 🧠 How RedisConfig Works – Flowchart
+# 🔥 **Key Features**
 
+## 1️⃣ GET /users/cache/{id} (Cache‑Aside Fetch)
 ```
-            ┌────────────────────────────┐
-            │ RedisConfig.java           │
-            └───────────────┬────────────┘
-                            │
-                            ▼
-        ┌────────────────────────────────────┐
-        │ Create LettuceConnectionFactory()  │
-        │ - Connects to localhost:6379       │
-        └───────────────────┬────────────────┘
-                            │
-                            ▼
-        ┌────────────────────────────────────┐
-        │ Create RedisTemplate()             │
-        │ - Set connection factory           │
-        │ - Set key serializer (String)      │
-        │ - Set value serializer (JSON)      │
-        └───────────────────┬────────────────┘
-                            │
-                            ▼
-        ┌────────────────────────────────────┐
-        │ Spring Boot Container registers    │
-        │ redisTemplate bean                 │
-        └────────────────────────────────────┘
+Cache HIT  → return from Redis  
+Cache MISS → load from DB → store in Redis → return  
+TTL = 60 sec
 ```
 
 ---
 
-# 🏛 MVC Architecture – Graphical Representation
+## 2️⃣ POST /users (Create User)
+- Creates DB record
+- Does NOT store in cache
+- Log added: `"USER_CREATED"`
 
+---
+
+## 3️⃣ PUT /users/{id} (Update User)
+- Update DB
+- Delete Redis cache key
+- Add log: `"CACHE_INVALIDATED_BY_PUT"`
+
+---
+
+## 4️⃣ PATCH /users/{id} (Partial Update)
+- Same as PUT
+- Invalidates cache
+- Does NOT repopulate Redis
+
+---
+
+## 5️⃣ 1‑Minute Background Scheduler
 ```
-                    CLIENT (Postman/Browser)
-                               │
-                               ▼
- ┌──────────────────────────────────────────────────────┐
- │               CONTROLLER (UserController)            │
- │  - Accepts HTTP requests                             │
- │  - Generates UUID for User                           │
- │  - Calls UserDao methods                             │
- └───────────────────────────┬──────────────────────────┘
-                             │
-                             ▼
- ┌──────────────────────────────────────────────────────┐
- │                      DAO (UserDao)                   │
- │  - Interacts with Redis via RedisTemplate            │
- │  - Performs HSET, HGET, HGETALL, HDEL               │
- └───────────────────────────┬──────────────────────────┘
-                             │
-                             ▼
- ┌──────────────────────────────────────────────────────┐
- │                 REDIS TEMPLATE LAYER                 │
- │  opsForHash()                                        │
- │  - put() → HSET                                      │
- │  - get() → HGET                                      │
- │  - entries() → HGETALL                               │
- │  - delete() → HDEL                                   │
- └───────────────────────────┬──────────────────────────┘
-                             │
-                             ▼
- ┌──────────────────────────────────────────────────────┐
- │                  REDIS SERVER (6379)                 │
- │  Stores users in HASH format:                        │
- │  KEY: USER123                                        │
- │   ├── uuid1 → {...}                                  │
- │   ├── uuid2 → {...}                                  │
- │   └── uuid3 → {...}                                  │
- └──────────────────────────────────────────────────────┘
+Every 60s:
+  - Check DB rows updated in last minute
+  - Delete Redis cache key
+  - Push log entry
 ```
 
 ---
 
-# 📌 Controllers & Flow
-
-## UserController.java
-
-### Create User Flow
+## 6️⃣ Redis LRU Eviction
+When Redis memory is full:
 ```
-POST /users
-         │
-         ▼
-Generate UUID
-         │
-         ▼
-userDao.save(user)
-         │
-         ▼
-Redis → HSET USER123 uuid {...}
-```
-
-### Get User Flow
-```
-GET /users/{id}
-         │
-         ▼
-userDao.get(id)
-         │
-         ▼
-Redis → HGET USER123 id
-```
-
-### Get All Users Flow
-```
-GET /users
-         │
-         ▼
-userDao.findAll()
-         │
-         ▼
-Redis → HGETALL USER123
-```
-
-### Delete User Flow
-```
-DELETE /users/{id}
-         │
-         ▼
-userDao.delete(id)
-         │
-         ▼
-Redis → HDEL USER123 id
+Least Recently Used key is automatically removed.
 ```
 
 ---
 
-# 🗄 Redis Hash Structure
+## 7️⃣ Redis Cache Logs
+Stored inside LIST:
+
 ```
-127.0.0.1:6379> HGETALL USER123
-
-"uuid-1"
-"{ user JSON }"
-
-"uuid-2"
-"{ user JSON }"
+LPUSH CACHE_LOGS "Cache cleared for USER:123"
+LPUSH CACHE_LOGS "DB updated_at detected → cache invalidated"
 ```
 
 ---
 
-# 🚀 Running the Application
+# 📡 **Endpoints Summary**
 
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| POST | `/users` | Create new user |
+| GET | `/users/{id}` | Fetch directly from DB |
+| GET | `/users/cache/{id}` | Cache‑aside fetch with TTL |
+| PUT | `/users/{id}` | Update (DB + Clear Cache) |
+| PATCH | `/users/{id}` | Partial update (DB + Clear Cache) |
+| GET | `/users` | Get all users (DB) |
+| DELETE | `/users/{id}` | Delete user (DB + Cache Delete) |
+
+---
+
+# 📄 **Sample API Request & Response**
+
+---
+
+## 1️⃣ Create User
+### **POST /users**
+### Request
+```json
+{
+  "name": "Adhish",
+  "email": "adhish@example.com"
+}
 ```
-mvn clean install
+### Response
+```json
+{
+  "userId": "8b02b2c2-85d1-4c62-9b5b-99d209",
+  "name": "Adhish",
+  "email": "adhish@example.com",
+  "updatedAt": "2025-11-11T14:22:19"
+}
+```
+
+---
+
+## 2️⃣ Get User (Cache Aside)
+### **GET /users/cache/{id}**
+### Response (1st time)
+```json
+{
+  "status": "CACHE_MISS",
+  "source": "DB",
+  "data": {
+    "userId": "123",
+    "name": "Adhish"
+  }
+}
+```
+
+### Response (2nd time)
+```json
+{
+  "status": "CACHE_HIT",
+  "source": "REDIS",
+  "data": {
+    "userId": "123",
+    "name": "Adhish"
+  }
+}
+```
+
+---
+
+## 3️⃣ Update User
+### **PUT /users/{id}**
+### Response
+```json
+{
+  "message": "User updated. Cache invalidated.",
+  "user": {
+    "userId": "123",
+    "name": "Updated Name"
+  }
+}
+```
+
+---
+
+## 4️⃣ Scheduler Log Output
+```
+[Scheduler] Found 1 updated record. Clearing cache → USER:123
+[Scheduler] Cache log added → CACHE_LOGS
+```
+
+---
+
+# 🚀 **How to Run**
+
+### Start PostgreSQL
+### Start Redis (ensure LRU is enabled)
+### Run Spring Boot
+```
 mvn spring-boot:run
 ```
 
-Test APIs using Postman:
-```
-POST    /users
-GET     /users/{id}
-GET     /users
-DELETE  /users/{id}
-```
-
 ---
 
-# Redis Advanced Functionalities (TTL, Locking, Cache-Aside, Pub/Sub)
+# ✅ **This Project Demonstrates**
 
-## 1. TTL (Expiry-based Cache)
+| Feature | Status |
+|--------|--------|
+| Cache-aside pattern | ✅ |
+| Redis TTL | ✅ |
+| Redis LRU | ✅ |
+| DB-triggered invalidation | ✅ |
+| PUT/PATCH invalidation | ✅ |
+| Scheduler-based invalidation | ✅ |
+| Redis logs | ✅ |
+| Clean MVC | ✅ |
 
-Used to store heavy objects temporarily.
-
-### Example:
-
-``` java
-public void cacheHeavyData(String key, Object data, long ttlInSeconds) {
-    redisTemplate.opsForValue().set(key, data, Duration.ofSeconds(ttlInSeconds));
-}
-```
-
-### Usage:
-
-``` java
-cacheHeavyData("LARGE_FILE_DATA", obj, 300); // 5 min
-```
-
-### Controller Example:
-
-``` java
-@GetMapping("/cache-heavy")
-public Object getHeavyFileData() {
-    String key = "LARGE_FILE_DATA";
-
-    Object cached = redisTemplate.opsForValue().get(key);
-
-    if (cached != null) return cached;
-
-    Object heavyResponse = heavyFileService.processHugeFile();
-
-    cacheHeavyData(key, heavyResponse, 300);
-
-    return heavyResponse;
-}
-```
-
-------------------------------------------------------------------------
-
-## 2. Distributed Locking
-
-``` java
-Boolean locked = redisTemplate.opsForValue().setIfAbsent("FILE_LOCK", "LOCKED", 20, TimeUnit.SECONDS);
-
-if Boolean.FALSE.equals(locked) {
-    return "Already processing!";
-}
-
-// After processing
-redisTemplate.delete("FILE_LOCK");
-```
-
-------------------------------------------------------------------------
-
-## 3. Caching List / Map / Set
-
-### Store List
-
-``` java
-redisTemplate.opsForList().leftPush("RECENT_LOGS", logText);
-```
-
-### Get List
-
-``` java
-redisTemplate.opsForList().range("RECENT_LOGS", 0, 10);
-```
-
-------------------------------------------------------------------------
-
-## 4. Pub/Sub Messaging
-
-### Publisher
-
-``` java
-redisTemplate.convertAndSend("USER_CHANNEL", user);
-```
-
-### Subscriber
-
-Use `MessageListenerAdapter` + `RedisMessageListenerContainer`.
-
-------------------------------------------------------------------------
-
-## 5. Cache-Aside Pattern (Best Practice)
-
-``` java
-public User getUserWithCache(String userId) {
-    String key = "USER_CACHE:" + userId;
-
-    User cached = (User) redisTemplate.opsForValue().get(key);
-    if (cached != null) return cached;
-
-    User user = fetchFromDatabase(userId);
-
-    redisTemplate.opsForValue().set(key, user, Duration.ofMinutes(5));
-
-    return user;
-}
-```
-
-------------------------------------------------------------------------
-
-## Summary
-
-✔ True Redis speed\
-✔ Automatic expiry\
-✔ Prevents duplicate processing\
-✔ Real-time updates\
-✔ Industry-standard caching
-
-
+--
